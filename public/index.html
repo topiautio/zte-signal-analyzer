@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZTE Signal Analyzer & Monitor</title>
+  <meta name="description" content="Premium RF Signal Analyzer and Logger for ZTE LTE/5G Routers">
+  
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Local Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode">
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="radio"></i>
+        </div>
+        <div class="brand-text">
+          <h1>ZTE Signal Analyzer</h1>
+          <p>Real-time RF Performance Monitoring & Logging</p>
+        </div>
+      </div>
+      
+      <!-- Connection & Status Indicator -->
+      <div class="header-controls">
+        <div class="status-pill status-connecting" id="connection-status-pill">
+          <span class="status-dot"></span>
+          <span class="status-text" id="connection-status-text">Connecting...</span>
+        </div>
+        <div class="router-ip-display">
+          <i data-lucide="globe" class="icon-sm"></i>
+          <span id="header-router-ip">192.168.1.1</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Layout Grid -->
+    <main class="app-grid">
+      
+      <!-- Left Column: Controls & Settings -->
+      <section class="grid-col sidebar-col">
+        
+        <!-- Quick Stats Panel -->
+        <div class="dashboard-card glass-panel" id="card-quick-stats">
+          <h2 class="card-title"><i data-lucide="activity"></i> Connection</h2>
+          <div class="quick-stats-grid">
+            <div class="quick-stat-item">
+              <span class="stat-label">Network Type</span>
+              <span class="stat-val" id="val-net-type">-</span>
+            </div>
+            <div class="quick-stat-item">
+              <span class="stat-label">PPP Status</span>
+              <span class="stat-val" id="val-ppp-status">-</span>
+            </div>
+            <div class="quick-stat-item">
+              <span class="stat-label">Primary Band</span>
+              <span class="stat-val" id="val-pcell-band">-</span>
+            </div>
+            <div class="quick-stat-item">
+              <span class="stat-label">Carrier Agg.</span>
+              <span class="stat-val" id="val-ca-status">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="dashboard-card glass-panel" id="card-controls">
+          <h2 class="card-title"><i data-lucide="sliders"></i> Monitor Controls</h2>
+          
+          <div class="form-group">
+            <label for="poll-interval">Polling Rate</label>
+            <div class="select-wrapper">
+              <select id="poll-interval">
+                <option value="500">0.5 seconds</option>
+                <option value="1000">1 second</option>
+                <option value="2000" selected>2 seconds</option>
+                <option value="5000">5 seconds</option>
+                <option value="10000">10 seconds</option>
+                <option value="30000">30 seconds</option>
+                <option value="manual">Manual Poll Only</option>
+              </select>
+              <i data-lucide="chevron-down" class="select-arrow"></i>
+            </div>
+          </div>
+
+          <div class="control-actions">
+            <button id="btn-toggle-poll" class="btn btn-primary">
+              <i data-lucide="pause" id="poll-icon"></i>
+              <span id="poll-btn-text">Pause Monitor</span>
+            </button>
+            <button id="btn-manual-poll" class="btn btn-secondary" disabled>
+              <i data-lucide="refresh-cw"></i>
+              <span>Poll Now</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Router Configuration Panel -->
+        <div class="dashboard-card glass-panel" id="card-config">
+          <h2 class="card-title"><i data-lucide="settings"></i> Router Settings</h2>
+          <form id="config-form">
+            <div class="form-group">
+              <label for="input-router-ip">Router IP Address</label>
+              <div class="input-wrapper">
+                <i data-lucide="server" class="input-icon"></i>
+                <input type="text" id="input-router-ip" placeholder="192.168.1.1" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="input-password">Admin Password</label>
+              <div class="input-wrapper">
+                <i data-lucide="lock" class="input-icon"></i>
+                <input type="password" id="input-password" placeholder="••••••••">
+              </div>
+            </div>
+            <button type="submit" id="btn-save-config" class="btn btn-accent">
+              <i data-lucide="save"></i>
+              <span>Save & Connect</span>
+            </button>
+          </form>
+          <div class="password-note">
+            <i data-lucide="info" class="icon-xs"></i>
+            <span>Used to auto-renew expired web session cookies.</span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Graphs, Gauges & Session Tables -->
+      <section class="grid-col main-col">
+        
+        <!-- Signal Metrics Primary Cards Grid -->
+        <div class="metrics-grid">
+          
+          <!-- RSRP Card -->
+          <div class="metric-card glass-panel" id="metric-rsrp-container">
+            <div class="metric-header">
+              <span class="metric-name">RSRP</span>
+              <span class="metric-badge quality-unknown" id="rsrp-quality">Unknown</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-value-container">
+                <span class="metric-num" id="rsrp-val">-</span>
+                <span class="metric-unit">dBm</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-unknown" id="rsrp-bar"></div>
+              </div>
+            </div>
+            <div class="metric-footer">
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-down" class="text-rose"></i> Worst:</span>
+                <span class="val" id="rsrp-worst">-</span>
+              </div>
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-up" class="text-emerald"></i> Best:</span>
+                <span class="val" id="rsrp-best">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- SINR Card -->
+          <div class="metric-card glass-panel" id="metric-sinr-container">
+            <div class="metric-header">
+              <span class="metric-name">SINR</span>
+              <span class="metric-badge quality-unknown" id="sinr-quality">Unknown</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-value-container">
+                <span class="metric-num" id="sinr-val">-</span>
+                <span class="metric-unit">dB</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-unknown" id="sinr-bar"></div>
+              </div>
+            </div>
+            <div class="metric-footer">
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-down" class="text-rose"></i> Worst:</span>
+                <span class="val" id="sinr-worst">-</span>
+              </div>
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-up" class="text-emerald"></i> Best:</span>
+                <span class="val" id="sinr-best">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- RSRQ Card -->
+          <div class="metric-card glass-panel" id="metric-rsrq-container">
+            <div class="metric-header">
+              <span class="metric-name">RSRQ</span>
+              <span class="metric-badge quality-unknown" id="rsrq-quality">Unknown</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-value-container">
+                <span class="metric-num" id="rsrq-val">-</span>
+                <span class="metric-unit">dB</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-unknown" id="rsrq-bar"></div>
+              </div>
+            </div>
+            <div class="metric-footer">
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-down" class="text-rose"></i> Worst:</span>
+                <span class="val" id="rsrq-worst">-</span>
+              </div>
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-up" class="text-emerald"></i> Best:</span>
+                <span class="val" id="rsrq-best">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- RSSI Card -->
+          <div class="metric-card glass-panel" id="metric-rssi-container">
+            <div class="metric-header">
+              <span class="metric-name">RSSI</span>
+              <span class="metric-badge quality-unknown" id="rssi-quality">Unknown</span>
+            </div>
+            <div class="metric-body">
+              <div class="metric-value-container">
+                <span class="metric-num" id="rssi-val">-</span>
+                <span class="metric-unit">dBm</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-unknown" id="rssi-bar"></div>
+              </div>
+            </div>
+            <div class="metric-footer">
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-down" class="text-rose"></i> Worst:</span>
+                <span class="val" id="rssi-worst">-</span>
+              </div>
+              <div class="min-max">
+                <span class="lbl"><i data-lucide="arrow-up" class="text-emerald"></i> Best:</span>
+                <span class="val" id="rssi-best">-</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Live Signal Quality Chart Card -->
+        <div class="dashboard-card glass-panel" id="card-chart">
+          <div class="card-header-with-actions">
+            <h2 class="card-title"><i data-lucide="trending-up"></i> Live Signal Strength & Quality</h2>
+            <div class="chart-legend-custom">
+              <span class="legend-dot color-rsrp"></span> RSRP
+              <span class="legend-dot color-sinr"></span> SINR
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="signalChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Expanded Network Stats Card -->
+        <div class="dashboard-card glass-panel" id="card-details">
+          <h2 class="card-title"><i data-lucide="network"></i> Detailed Connection Parameters</h2>
+          <div class="details-table-wrapper">
+            <table class="details-table">
+              <tbody>
+                <tr>
+                  <td>eNodeB ID</td>
+                  <td id="det-enb-id" class="text-mono">-</td>
+                  <td>Cell ID</td>
+                  <td id="det-cell-id" class="text-mono">-</td>
+                </tr>
+                <tr>
+                  <td>Primary Channel (EARFCN)</td>
+                  <td id="det-pcell-arfcn" class="text-mono">-</td>
+                  <td>Primary Bandwidth</td>
+                  <td id="det-pcell-bw">-</td>
+                </tr>
+                <tr>
+                  <td>IPv4 WAN Address</td>
+                  <td id="det-ipv4" class="text-mono">-</td>
+                  <td>IPv6 WAN Address</td>
+                  <td id="det-ipv6" class="text-mono">-</td>
+                </tr>
+                <tr>
+                  <td>RSCP (3G metric)</td>
+                  <td id="det-rscp" class="text-mono">-</td>
+                  <td>Static IP Mode</td>
+                  <td id="det-static-ip">-</td>
+                </tr>
+                <tr>
+                  <td>Carrier Aggregation Bands</td>
+                  <td id="det-scell-band" colspan="3">-</td>
+                </tr>
+                <tr>
+                  <td>Secondary Cells Info</td>
+                  <td id="det-scell-info" colspan="3" class="text-small text-mono">-</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Session Logging History Card -->
+        <div class="dashboard-card glass-panel" id="card-log">
+          <div class="card-header-with-actions">
+            <h2 class="card-title"><i data-lucide="database"></i> Session Log History</h2>
+            <div class="header-actions">
+              <button id="btn-export-csv" class="btn btn-sm btn-secondary">
+                <i data-lucide="download"></i> Export CSV
+              </button>
+              <button id="btn-clear-session" class="btn btn-sm btn-danger">
+                <i data-lucide="trash-2"></i> Clear Stats & Log
+              </button>
+            </div>
+          </div>
+          <div class="log-table-wrapper">
+            <table class="log-table" id="log-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>RSRP (dBm)</th>
+                  <th>SINR (dB)</th>
+                  <th>RSRQ (dB)</th>
+                  <th>RSSI (dBm)</th>
+                  <th>Network</th>
+                  <th>Cell ID</th>
+                </tr>
+              </thead>
+              <tbody id="log-table-body">
+                <tr class="empty-row">
+                  <td colspan="7">No polling history recorded in this session yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer-bar">
+      <p>&copy; 2026 ZTE Signal Analyzer Tool. Pair programmed with Antigravity.</p>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
