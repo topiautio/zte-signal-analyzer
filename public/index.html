@@ -24,6 +24,31 @@
 <body class="dark-mode">
   <div class="app-container">
     
+    <!-- Roof Mode Control Bar (Hidden by default) -->
+    <div id="roof-control-bar" class="glass-panel" style="display: none;">
+      <div class="roof-bar-content">
+        <button id="btn-exit-roof" class="btn btn-sm btn-danger" style="width: auto;">
+          <i data-lucide="x"></i> Exit Roof Mode
+        </button>
+        <div class="roof-toggles">
+          <label class="switch-label text-small">
+            <input type="checkbox" id="roof-toggle-audio-beep">
+            <span class="custom-checkbox"></span>
+            <span class="toggle-text">Tone Finder</span>
+          </label>
+          <label class="switch-label text-small" style="margin-left: 16px;">
+            <input type="checkbox" id="roof-toggle-speech">
+            <span class="custom-checkbox"></span>
+            <span class="toggle-text">Voice Readout</span>
+          </label>
+        </div>
+        <div class="status-pill status-connecting" id="roof-connection-status-pill">
+          <span class="status-dot"></span>
+          <span id="roof-connection-status-text" class="status-text">Connecting...</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Top Header -->
     <header class="app-header">
       <div class="brand">
@@ -46,6 +71,10 @@
           <i data-lucide="globe" class="icon-sm"></i>
           <span id="header-router-ip">192.168.1.1</span>
         </div>
+        <button id="btn-toggle-roof-mode" class="btn btn-sm btn-secondary" style="width: auto;">
+          <i data-lucide="smartphone"></i>
+          <span>Roof Mode</span>
+        </button>
       </div>
     </header>
 

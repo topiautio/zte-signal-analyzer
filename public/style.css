@@ -949,3 +949,74 @@ body {
   color: var(--text-muted);
   line-height: 1.45;
 }
+
+/* Roof Mode Styling */
+#roof-control-bar {
+  display: none;
+  margin-bottom: 16px;
+  padding: 12px 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+body.roof-mode-active {
+  background-image: none !important;
+  background-color: #04060c !important; /* solid pitch black for maximum sunlight contrast */
+}
+
+body.roof-mode-active .app-container {
+  padding: 10px !important;
+  max-width: 100% !important;
+}
+
+body.roof-mode-active .app-header,
+body.roof-mode-active .sidebar-col,
+body.roof-mode-active #card-details,
+body.roof-mode-active #card-log,
+body.roof-mode-active .app-footer-bar {
+  display: none !important;
+}
+
+body.roof-mode-active #roof-control-bar {
+  display: block !important;
+}
+
+body.roof-mode-active .app-grid {
+  grid-template-columns: 1fr !important;
+  gap: 12px !important;
+}
+
+.roof-bar-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.roof-toggles {
+  display: flex;
+  align-items: center;
+}
+
+/* Mobile responsive layout tweaks for Roof Mode */
+@media (max-width: 640px) {
+  .roof-bar-content {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .roof-toggles {
+    justify-content: space-around;
+    margin: 8px 0;
+  }
+  
+  body.roof-mode-active #roof-connection-status-pill {
+    align-self: center;
+  }
+}

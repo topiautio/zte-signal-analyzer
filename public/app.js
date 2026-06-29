@@ -410,17 +410,41 @@ function setupEventListeners() {
     fetchHistory(limit);
   });
 
-  // Toggle Audio Beep Finder
-  document.getElementById('toggle-audio-beep').addEventListener('change', (e) => {
-    isAudioToneActive = e.target.checked;
-    if (isAudioToneActive && !audioCtx) {
+  // Toggle Audio Beep Finder (bidirectional sync)
+  const beepMain = document.getElementById('toggle-audio-beep');
+  const beepRoof = document.getElementById('roof-toggle-audio-beep');
+  
+  function setBeepState(checked) {
+    isAudioToneActive = checked;
+    beepMain.checked = checked;
+    beepRoof.checked = checked;
+    if (checked && !audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
-  });
+  }
+  
+  beepMain.addEventListener('change', (e) => setBeepState(e.target.checked));
+  beepRoof.addEventListener('change', (e) => setBeepState(e.target.checked));
 
-  // Toggle Speech TTS Finder
-  document.getElementById('toggle-speech').addEventListener('change', (e) => {
-    isSpeechActive = e.target.checked;
+  // Toggle Speech TTS Finder (bidirectional sync)
+  const speechMain = document.getElementById('toggle-speech');
+  const speechRoof = document.getElementById('roof-toggle-speech');
+  
+  function setSpeechState(checked) {
+    isSpeechActive = checked;
+    speechMain.checked = checked;
+    speechRoof.checked = checked;
+  }
+  
+  speechMain.addEventListener('change', (e) => setSpeechState(e.target.checked));
+  speechRoof.addEventListener('change', (e) => setSpeechState(e.target.checked));
+
+  // Toggle Roof Mode Buttons
+  document.getElementById('btn-toggle-roof-mode').addEventListener('click', () => {
+    toggleRoofMode(true);
+  });
+  document.getElementById('btn-exit-roof').addEventListener('click', () => {
+    toggleRoofMode(false);
   });
 }
 
@@ -461,11 +485,21 @@ function updatePollButtonUI(active, isManual = false) {
 async function pollData() {
   const statusPill = document.getElementById('connection-status-pill');
   const statusText = document.getElementById('connection-status-text');
+  const roofStatusPill = document.getElementById('roof-connection-status-pill');
+  const roofStatusText = document.getElementById('roof-connection-status-text');
+
+  function setStatus(cls, text) {
+    statusPill.className = `status-pill ${cls}`;
+    statusText.textContent = text;
+    if (roofStatusPill) {
+      roofStatusPill.className = `status-pill ${cls}`;
+      roofStatusText.textContent = text;
+    }
+  }
 
   // Show retrieving state
   if (isFirstFetch) {
-    statusPill.className = 'status-pill status-connecting';
-    statusText.textContent = 'Fetching...';
+    setStatus('status-connecting', 'Fetching...');
   }
 
   try {
@@ -473,19 +507,16 @@ async function pollData() {
     const result = await response.json();
 
     if (result.success && result.data) {
-      statusPill.className = 'status-pill status-connected';
-      statusText.textContent = 'Connected';
+      setStatus('status-connected', 'Connected');
       
       updateDashboard(result.data);
       isFirstFetch = false;
     } else {
-      statusPill.className = 'status-pill status-offline';
-      statusText.textContent = 'Auth Error';
+      setStatus('status-offline', 'Auth Error');
       console.error('Backend returned error:', result.error);
     }
   } catch (error) {
-    statusPill.className = 'status-pill status-offline';
-    statusText.textContent = 'Offline';
+    setStatus('status-offline', 'Offline');
     console.error('Fetch error:', error);
   }
 }
@@ -1011,6 +1042,22 @@ function handleCellSwitch(timestamp, cellId, enbId) {
       }
     };
     
-    signalChart.update();
+  }
+}
+
+// Toggle Roof Mode UI state and trigger chart reflow
+function toggleRoofMode(active) {
+  if (active) {
+    document.body.classList.add('roof-mode-active');
+  } else {
+    document.body.classList.remove('roof-mode-active');
+  }
+  
+  // Force Chart.js to recalculate dimensions immediately
+  if (signalChart) {
+    setTimeout(() => {
+      signalChart.resize();
+      signalChart.update();
+    }, 80);
   }
 }
