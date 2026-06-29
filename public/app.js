@@ -4,6 +4,23 @@ let currentIntervalMs = 2000;
 let isPollingActive = true;
 let isFirstFetch = true;
 
+// Positioning Aids State
+let audioCtx = null;
+let isAudioToneActive = false;
+let isSpeechActive = false;
+let lastTtsTime = 0;
+
+// Rolling queue for delta calculations (5-second window)
+const deltaWindowQueue = [];
+
+let prevMetrics = {
+  rsrp: null,
+  sinr: null,
+  rsrq: null,
+  rssi: null,
+  cellId: null
+};
+
 // Session Statistics Tracking
 const sessionStats = {
   rsrp: { best: -Infinity, worst: Infinity },
@@ -30,6 +47,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize the Line Chart
   initChart();
 
+  // Load historical signals from database
+  await fetchHistory();
+
   // Start polling
   startPolling();
 
@@ -49,6 +69,105 @@ async function fetchConfig() {
   } catch (err) {
     console.error('Error fetching config from server:', err);
   }
+}
+
+// Fetch database historical logs from server to populate the interface
+async function fetchHistory() {
+  try {
+    const res = await fetch('/api/history?limit=100');
+    const data = await res.json();
+    if (data.success && data.history) {
+      // Clear existing UI data to prevent duplicates
+      sessionLogs.length = 0;
+
+      if (signalChart) {
+        signalChart.data.labels = [];
+        signalChart.data.datasets[0].data = [];
+        signalChart.data.datasets[1].data = [];
+      }
+
+      // Loop through and load historical records
+      data.history.forEach(row => {
+        const timestamp = new Date(row.timestamp).toLocaleTimeString();
+        
+        sessionLogs.unshift({
+          timestamp: timestamp,
+          rsrp: row.rsrp !== null ? row.rsrp : '-',
+          sinr: row.sinr !== null ? row.sinr : '-',
+          rsrq: row.rsrq !== null ? row.rsrq : '-',
+          rssi: row.rssi !== null ? row.rssi : '-',
+          network: row.network_type || '-',
+          cellId: row.cell_id || '-'
+        });
+
+        trackSessionStats('rsrp', row.rsrp);
+        trackSessionStats('sinr', row.sinr);
+        trackSessionStats('rsrq', row.rsrq);
+        trackSessionStats('rssi', row.rssi);
+
+        if (signalChart) {
+          signalChart.data.labels.push(timestamp);
+          signalChart.data.datasets[0].data.push(row.rsrp);
+          signalChart.data.datasets[1].data.push(row.sinr);
+        }
+      });
+
+      // Set prevMetrics for delta tracking
+      if (data.history.length > 0) {
+        const lastRow = data.history[data.history.length - 1];
+        prevMetrics = {
+          rsrp: lastRow.rsrp,
+          sinr: lastRow.sinr,
+          rsrq: lastRow.rsrq,
+          rssi: lastRow.rssi,
+          cellId: lastRow.cell_id
+        };
+        evaluatePlacement(lastRow.rsrp, lastRow.sinr, lastRow.rsrq);
+      }
+
+      if (signalChart) {
+        signalChart.update();
+      }
+
+      rebuildLogTableUI();
+    }
+  } catch (err) {
+    console.error('Error loading history from database:', err);
+  }
+}
+
+// Rebuilds the DOM log table with session logs array
+function rebuildLogTableUI() {
+  const tableBody = document.getElementById('log-table-body');
+  if (!tableBody) return;
+
+  tableBody.innerHTML = '';
+  
+  if (sessionLogs.length === 0) {
+    tableBody.innerHTML = `
+      <tr class="empty-row">
+        <td colspan="7">No polling history recorded in this session yet.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  // Display max 100 rows for performance
+  const displayLogs = sessionLogs.slice(0, 100);
+  
+  displayLogs.forEach(log => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="text-mono">${log.timestamp}</td>
+      <td class="text-mono font-semibold">${log.rsrp !== null ? log.rsrp : '-'}</td>
+      <td class="text-mono font-semibold">${log.sinr !== null ? log.sinr : '-'}</td>
+      <td class="text-mono">${log.rsrq !== null ? log.rsrq : '-'}</td>
+      <td class="text-mono">${log.rssi !== null ? log.rssi : '-'}</td>
+      <td>${log.network || '-'}</td>
+      <td class="text-mono">${log.cellId || '-'}</td>
+    `;
+    tableBody.appendChild(tr);
+  });
 }
 
 // Initialize Chart.js
@@ -107,6 +226,42 @@ function initChart() {
           borderWidth: 1,
           padding: 10,
           cornerRadius: 8
+        },
+        annotation: {
+          annotations: {
+            rsrpExcellent: {
+              type: 'box',
+              yScaleID: 'y-rsrp',
+              yMin: -80,
+              yMax: -40,
+              backgroundColor: 'rgba(16, 185, 129, 0.03)',
+              borderWidth: 0
+            },
+            rsrpGood: {
+              type: 'box',
+              yScaleID: 'y-rsrp',
+              yMin: -90,
+              yMax: -80,
+              backgroundColor: 'rgba(132, 204, 22, 0.02)',
+              borderWidth: 0
+            },
+            rsrpFair: {
+              type: 'box',
+              yScaleID: 'y-rsrp',
+              yMin: -100,
+              yMax: -90,
+              backgroundColor: 'rgba(234, 179, 8, 0.02)',
+              borderWidth: 0
+            },
+            rsrpPoor: {
+              type: 'box',
+              yScaleID: 'y-rsrp',
+              yMin: -140,
+              yMax: -100,
+              backgroundColor: 'rgba(239, 68, 68, 0.02)',
+              borderWidth: 0
+            }
+          }
         }
       },
       scales: {
@@ -237,6 +392,19 @@ function setupEventListeners() {
 
   // Clear Session Log & Stats
   document.getElementById('btn-clear-session').addEventListener('click', clearSession);
+
+  // Toggle Audio Beep Finder
+  document.getElementById('toggle-audio-beep').addEventListener('change', (e) => {
+    isAudioToneActive = e.target.checked;
+    if (isAudioToneActive && !audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  });
+
+  // Toggle Speech TTS Finder
+  document.getElementById('toggle-speech').addEventListener('change', (e) => {
+    isSpeechActive = e.target.checked;
+  });
 }
 
 // Start polling timer
@@ -325,6 +493,31 @@ function updateDashboard(data) {
   updateMetricCard('sinr', sinr, -10, 40, 'dB', getSINRQuality);
   updateMetricCard('rsrq', rsrq, -30, -3, 'dB', getRSRQQuality);
   updateMetricCard('rssi', rssi, -120, -30, 'dBm', getRSSIQuality);
+
+  // Update Deltas using a rolling 5-second window to prevent rapid flickering
+  updateRollingDeltas(rsrp, sinr, rsrq, rssi);
+
+  // Check for Cell Tower handoffs
+  const cellId = data.Z_CELL_ID || null;
+  if (prevMetrics.cellId !== null && cellId !== null && prevMetrics.cellId !== cellId) {
+    handleCellSwitch(timestamp, cellId, data.Z_eNB_id || 'N/A');
+  }
+
+  // Store for next time
+  prevMetrics = { rsrp, sinr, rsrq, rssi, cellId };
+
+  // Trigger Positioning Audio Finder Tone
+  if (isAudioToneActive) {
+    playAcousticBeep(rsrp);
+  }
+
+  // Trigger TTS voice readout
+  if (isSpeechActive) {
+    speakSignal(rsrp, sinr);
+  }
+
+  // Evaluate Positioning Advice
+  evaluatePlacement(rsrp, sinr, rsrq);
 
   // 2. Track & Update Session Min/Max Stats
   trackSessionStats('rsrp', rsrp);
@@ -480,9 +673,16 @@ function exportToCSV() {
 }
 
 // Clear Session Log & Stats
-function clearSession() {
+async function clearSession() {
   if (!confirm('Are you sure you want to reset all session statistics and logs?')) {
     return;
+  }
+
+  // Clear server SQLite database logs
+  try {
+    await fetch('/api/history/clear', { method: 'POST' });
+  } catch (err) {
+    console.error('Failed to clear database logs:', err);
   }
 
   // Reset stats in memory
@@ -493,12 +693,18 @@ function clearSession() {
 
   // Clear memory log
   sessionLogs.length = 0;
+  deltaWindowQueue.length = 0;
 
   // Clear UI text indicators
   const metrics = ['rsrp', 'sinr', 'rsrq', 'rssi'];
   metrics.forEach(m => {
     document.getElementById(`${m}-best`).textContent = '-';
     document.getElementById(`${m}-worst`).textContent = '-';
+    const deltaElem = document.getElementById(`${m}-delta`);
+    if (deltaElem) {
+      deltaElem.style.display = 'none';
+      deltaElem.textContent = '';
+    }
   });
 
   // Clear table UI
@@ -514,6 +720,17 @@ function clearSession() {
     signalChart.data.labels = [];
     signalChart.data.datasets[0].data = [];
     signalChart.data.datasets[1].data = [];
+    
+    // Clear handoff annotations
+    if (signalChart.options.plugins.annotation && signalChart.options.plugins.annotation.annotations) {
+      const annotations = signalChart.options.plugins.annotation.annotations;
+      for (const key in annotations) {
+        if (key.startsWith('switch-')) {
+          delete annotations[key];
+        }
+      }
+    }
+    
     signalChart.update();
   }
 }
@@ -535,6 +752,16 @@ function updateChartData(label, rsrp, sinr) {
     labels.shift();
     rsrpData.shift();
     sinrData.shift();
+
+    // Prune out-of-view handoff annotations
+    if (signalChart.options.plugins.annotation && signalChart.options.plugins.annotation.annotations) {
+      const annotations = signalChart.options.plugins.annotation.annotations;
+      for (const key in annotations) {
+        if (key.startsWith('switch-') && !labels.includes(annotations[key].value)) {
+          delete annotations[key];
+        }
+      }
+    }
   }
 
   signalChart.update('none'); // Update without full animation frame reset (smoother performance)
@@ -571,4 +798,202 @@ function getRSSIQuality(val) {
   if (val >= -75) return 'Good';
   if (val >= -85) return 'Fair';
   return 'Poor';
+}
+
+// Updates and displays deltas relative to a 5-second rolling window
+function updateRollingDeltas(rsrp, sinr, rsrq, rssi) {
+  const now = Date.now();
+
+  // Push current values to the rolling window queue
+  deltaWindowQueue.push({
+    time: now,
+    rsrp,
+    sinr,
+    rsrq,
+    rssi
+  });
+
+  // Prune entries older than 5 seconds
+  while (deltaWindowQueue.length > 0 && (now - deltaWindowQueue[0].time > 5000)) {
+    // Keep at least one element for reference
+    if (deltaWindowQueue.length === 1) break;
+    deltaWindowQueue.shift();
+  }
+
+  // The reference values are the oldest ones in our 5-second window
+  const ref = deltaWindowQueue[0];
+
+  updateDelta('rsrp', rsrp, ref.rsrp);
+  updateDelta('sinr', sinr, ref.sinr, 1);
+  updateDelta('rsrq', rsrq, ref.rsrq);
+  updateDelta('rssi', rssi, ref.rssi);
+}
+
+// Calculate delta relative to reference baseline (sticky: retains last non-zero change)
+function updateDelta(name, currentVal, prevVal, decimals = 0) {
+  const deltaElem = document.getElementById(`${name}-delta`);
+  if (!deltaElem) return;
+
+  if (currentVal === null || prevVal === null || isNaN(currentVal) || isNaN(prevVal)) {
+    return;
+  }
+
+  const diff = currentVal - prevVal;
+  if (diff !== 0) {
+    const formattedDiff = diff > 0 ? `+${diff.toFixed(decimals)}` : `${diff.toFixed(decimals)}`;
+    const arrow = diff > 0 ? '▲' : '▼';
+    deltaElem.textContent = `${formattedDiff} ${arrow}`;
+    deltaElem.className = `metric-delta ${diff > 0 ? 'delta-plus' : 'delta-minus'}`;
+    deltaElem.style.display = 'inline-block';
+  }
+}
+
+// Plays a soft locator beep whose frequency maps to RSRP
+function playAcousticBeep(rsrp) {
+  if (rsrp === null || isNaN(rsrp)) return;
+
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
+    // Map RSRP (-120 to -50) to sound frequency (220 Hz to 880 Hz)
+    const minRsrp = -120;
+    const maxRsrp = -50;
+    const clamped = Math.max(minRsrp, Math.min(maxRsrp, rsrp));
+    const pct = (clamped - minRsrp) / (maxRsrp - minRsrp); // 0.0 to 1.0
+    const frequency = 220 + (pct * pct * 660); // quadratic pitch scale for better resolution
+
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+
+    // Fade curve to prevent pops or clicks
+    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.2);
+  } catch (e) {
+    console.error('Audio tone error:', e);
+  }
+}
+
+// Periodically read out the current signal metrics via Speech Synthesis
+function speakSignal(rsrp, sinr) {
+  if (!('speechSynthesis' in window)) return;
+  if (rsrp === null || isNaN(rsrp)) return;
+
+  const now = Date.now();
+  if (now - lastTtsTime < 4000) return; // speak at most once every 4 seconds
+  lastTtsTime = now;
+
+  window.speechSynthesis.cancel(); // clear previous speech queue
+
+  let text = `R S R P is ${rsrp} decibels`;
+  if (sinr !== null && !isNaN(sinr)) {
+    text += `, S I N R is ${sinr.toFixed(0)} decibels`;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.15; // slightly fast for responsive positioning feel
+  utterance.volume = 0.75;
+  window.speechSynthesis.speak(utterance);
+}
+
+// Analyzes the signal metrics to offer physical positioning suggestions
+function evaluatePlacement(rsrp, sinr, rsrq) {
+  const cardAdvice = document.getElementById('card-advice');
+  const adviceContent = cardAdvice.querySelector('.advice-content');
+  const adviceTitle = document.getElementById('advice-title');
+  const adviceMessage = document.getElementById('advice-message');
+
+  if (rsrp === null || isNaN(rsrp)) {
+    cardAdvice.style.display = 'none';
+    return;
+  }
+
+  cardAdvice.style.display = 'block';
+  adviceContent.className = 'advice-content'; // reset severity styles
+
+  const rsrpQual = getRSRPQuality(rsrp);
+  const sinrQual = getSINRQuality(sinr);
+
+  if (rsrpQual === 'Excellent' && sinrQual === 'Excellent') {
+    adviceContent.classList.add('severity-excellent');
+    adviceTitle.textContent = 'Perfect Placement!';
+    adviceMessage.textContent = 'Both signal strength (RSRP) and quality (SINR) are optimal. Your router/antenna is in an ideal location.';
+  } else if (rsrpQual === 'Poor') {
+    adviceContent.classList.add('severity-poor');
+    adviceTitle.textContent = 'Critically Weak Signal';
+    adviceMessage.textContent = 'Signal strength (RSRP) is very weak. Elevate the router, move it near an exterior window facing open spaces, or point your outdoor antenna toward the cell tower.';
+  } else if (rsrpQual === 'Excellent' && sinrQual === 'Poor') {
+    adviceContent.classList.add('severity-poor');
+    adviceTitle.textContent = 'High Interference / Noise';
+    adviceMessage.textContent = 'Signal strength is excellent, but signal quality (SINR) is extremely low. Move the router away from large electronic devices, metallic surfaces, or low-E coated glass windows.';
+  } else if (rsrpQual === 'Fair' && sinrQual === 'Excellent') {
+    adviceContent.classList.add('severity-good');
+    adviceTitle.textContent = 'Clean but Distant Signal';
+    adviceMessage.textContent = 'Signal quality is excellent, indicating a clean line-of-sight, but power is low. Elevating the router or pointing directional antennas slightly higher can capture more signal.';
+  } else if (sinrQual === 'Fair' || sinrQual === 'Poor') {
+    adviceContent.classList.add('severity-fair');
+    adviceTitle.textContent = 'Optimize Antenna Alignment';
+    adviceMessage.textContent = 'Signal quality is the current bottleneck. Slowly rotate your router or antenna by 5-10 degrees at a time and wait 5 seconds to observe if the SINR value increases.';
+  } else {
+    adviceContent.classList.add('severity-good');
+    adviceTitle.textContent = 'Stable Connection';
+    adviceMessage.textContent = 'Your signal parameters are stable. Minor height adjustments or moving the router to a higher floor might help push the signal into the Excellent category.';
+  }
+}
+
+// Handles cell tower handoffs by reading it via TTS and marking it on the live chart
+function handleCellSwitch(timestamp, cellId, enbId) {
+  console.log(`[Tower Switch] Tower changed. Timestamp: ${timestamp}, Cell ID: ${cellId}, eNodeB ID: ${enbId}`);
+
+  // 1. Text-To-Speech announcement if active
+  if (isSpeechActive && ('speechSynthesis' in window)) {
+    window.speechSynthesis.cancel();
+    // Spell out or speak last 4 characters of cell ID for clarity
+    const speakCell = cellId.length > 4 ? cellId.slice(-4) : cellId;
+    const utterance = new SpeechSynthesisUtterance(`Tower handoff. Now connected to cell ${speakCell.split('').join(' ')}.`);
+    utterance.rate = 1.1;
+    utterance.volume = 0.85;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // 2. Draw a vertical line marker on the chart at the current timestamp
+  if (signalChart && signalChart.options.plugins.annotation && signalChart.options.plugins.annotation.annotations) {
+    const annotations = signalChart.options.plugins.annotation.annotations;
+    const shortCell = cellId.length > 5 ? cellId.slice(-5) : cellId;
+    
+    annotations[`switch-${timestamp}`] = {
+      type: 'line',
+      scaleID: 'x',
+      value: timestamp,
+      borderColor: '#eab308', // amber color
+      borderWidth: 2,
+      borderDash: [5, 5],
+      label: {
+        display: true,
+        content: `Handoff: ${shortCell}`,
+        position: 'start',
+        backgroundColor: 'rgba(234, 179, 8, 0.85)',
+        color: '#0a0e1a',
+        font: { size: 9, weight: 'bold', family: 'Outfit' },
+        padding: { top: 4, bottom: 4, left: 6, right: 6 }
+      }
+    };
+    
+    signalChart.update();
+  }
 }

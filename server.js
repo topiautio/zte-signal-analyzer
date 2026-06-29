@@ -6,10 +6,114 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const Database = require('better-sqlite3');
+const fs = require('fs');
+
 // Configuration state
 let routerIp = process.env.ROUTER_IP || '192.168.1.1';
 let routerPassword = process.env.ROUTER_PASSWORD || '';
 let cachedCookie = '';
+
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+
+// Load config helper
+function loadConfig() {
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      if (data.routerIp) routerIp = data.routerIp;
+      if (data.routerPassword) routerPassword = data.routerPassword;
+      console.log(`[Config] Loaded custom configuration from config.json. IP: ${routerIp}`);
+    } catch (e) {
+      console.error('[Config] Error loading config.json:', e.message);
+    }
+  }
+}
+
+// Save config helper
+function saveConfig(ip, password) {
+  try {
+    const configData = {
+      routerIp: ip,
+      routerPassword: password || routerPassword
+    };
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(configData, null, 2), 'utf8');
+    console.log(`[Config] Saved custom configuration to config.json`);
+  } catch (e) {
+    console.error('[Config] Error writing config.json:', e.message);
+  }
+}
+
+// Initialize config on startup
+loadConfig();
+
+// Initialize SQLite database
+const db = new Database(path.join(__dirname, 'signal_history.db'));
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS signal_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    rsrp INTEGER,
+    sinr REAL,
+    rsrq INTEGER,
+    rssi INTEGER,
+    network_type TEXT,
+    cell_id TEXT,
+    enb_id TEXT,
+    band TEXT
+  )
+`).run();
+
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_timestamp ON signal_history(timestamp)`).run();
+
+// Save log helper
+function saveLogToDb(rsrp, sinr, rsrq, rssi, networkType, cellId, enbId, band) {
+  try {
+    const insert = db.prepare(`
+      INSERT INTO signal_history (timestamp, rsrp, sinr, rsrq, rssi, network_type, cell_id, enb_id, band)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    // Normalize positive RSSI
+    let normRssi = rssi;
+    if (normRssi !== null && normRssi > 0) {
+      normRssi = -normRssi;
+    }
+
+    insert.run(
+      new Date().toISOString(),
+      rsrp,
+      sinr,
+      rsrq,
+      normRssi,
+      networkType,
+      cellId,
+      enbId,
+      band
+    );
+  } catch (err) {
+    console.error('[DB Error] Failed to write log:', err.message);
+  }
+}
+
+// Prune old logs helper
+function pruneOldLogs() {
+  try {
+    const result = db.prepare(`
+      DELETE FROM signal_history 
+      WHERE timestamp < datetime('now', '-7 days')
+    `).run();
+    if (result.changes > 0) {
+      console.log(`[DB] Pruned ${result.changes} logs older than 7 days.`);
+    }
+  } catch (err) {
+    console.error('[DB Error] Failed to prune logs:', err.message);
+  }
+}
+
+// Run prune once on startup
+pruneOldLogs();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -187,10 +291,22 @@ async function fetchSignalData(retryOnAuthError = true) {
   return data;
 }
 
+let lastClientRequestTime = 0;
+
 // API endpoint to fetch signal details
 app.get('/api/signal', async (req, res) => {
+  lastClientRequestTime = Date.now();
   try {
     const data = await fetchSignalData();
+    
+    // Save to SQLite
+    const rsrp = (data.lte_rsrp !== undefined && data.lte_rsrp !== '') ? parseInt(data.lte_rsrp) : null;
+    const sinr = (data.Z_SINR !== undefined && data.Z_SINR !== '') ? parseFloat(data.Z_SINR) : null;
+    const rsrq = (data.Z_rsrq !== undefined && data.Z_rsrq !== '') ? parseInt(data.Z_rsrq) : null;
+    const rssi = (data.rssi !== undefined && data.rssi !== '') ? parseInt(data.rssi) : null;
+    
+    saveLogToDb(rsrp, sinr, rsrq, rssi, data.network_type, data.Z_CELL_ID, data.Z_eNB_id, data.lte_ca_pcell_band);
+
     res.json({
       success: true,
       data: data
@@ -201,6 +317,37 @@ app.get('/api/signal', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// API endpoint to get historical log history
+app.get('/api/history', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const stmt = db.prepare(`
+      SELECT * FROM signal_history 
+      ORDER BY timestamp DESC 
+      LIMIT ?
+    `);
+    const rows = stmt.all(limit);
+    // Reverse rows so they are returned in chronological order
+    rows.reverse();
+    res.json({
+      success: true,
+      history: rows
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// API endpoint to clear database history
+app.post('/api/history/clear', (req, res) => {
+  try {
+    db.prepare('DELETE FROM signal_history').run();
+    res.json({ success: true, message: 'Database history cleared successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -218,6 +365,9 @@ app.post('/api/config', async (req, res) => {
   // Clear cached cookie to force new login handshake
   cachedCookie = '';
 
+  // Save new configuration to config.json
+  saveConfig(routerIp, routerPassword);
+
   console.log(`[Router Proxy] Config updated. IP: ${routerIp}. Cached session cleared.`);
   
   try {
@@ -231,6 +381,30 @@ app.post('/api/config', async (req, res) => {
     });
   }
 });
+
+// Background polling loop (every 5 seconds)
+setInterval(async () => {
+  const now = Date.now();
+  // Only run background polling if no client has polled in the last 15 seconds
+  if (now - lastClientRequestTime > 15000) {
+    try {
+      console.log('[Background Poll] Checking and logging signal metrics...');
+      const data = await fetchSignalData(true);
+      
+      const rsrp = (data.lte_rsrp !== undefined && data.lte_rsrp !== '') ? parseInt(data.lte_rsrp) : null;
+      const sinr = (data.Z_SINR !== undefined && data.Z_SINR !== '') ? parseFloat(data.Z_SINR) : null;
+      const rsrq = (data.Z_rsrq !== undefined && data.Z_rsrq !== '') ? parseInt(data.Z_rsrq) : null;
+      const rssi = (data.rssi !== undefined && data.rssi !== '') ? parseInt(data.rssi) : null;
+      
+      saveLogToDb(rsrp, sinr, rsrq, rssi, data.network_type, data.Z_CELL_ID, data.Z_eNB_id, data.lte_ca_pcell_band);
+    } catch (error) {
+      console.error(`[Background Poll Error]`, error.message);
+    }
+  }
+}, 5000);
+
+// Prune old logs once an hour
+setInterval(pruneOldLogs, 60 * 60 * 1000);
 
 // API endpoint to manual login
 app.post('/api/login', async (req, res) => {

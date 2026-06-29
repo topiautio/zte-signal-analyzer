@@ -16,6 +16,7 @@
   
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 
   <!-- Local Styles -->
   <link rel="stylesheet" href="style.css">
@@ -109,6 +110,30 @@
           </div>
         </div>
 
+        <!-- Audio Alignment Aids -->
+        <div class="dashboard-card glass-panel" id="card-alignment-aids">
+          <h2 class="card-title"><i data-lucide="volume-2"></i> Antenna Alignment Aids</h2>
+          <div class="toggle-group">
+            <div class="toggle-control">
+              <label class="switch-label">
+                <input type="checkbox" id="toggle-audio-beep">
+                <span class="custom-checkbox"></span>
+                <span class="toggle-text">Signal Tone Finder</span>
+              </label>
+              <span class="toggle-desc">Plays a beep whose pitch increases as signal strength (RSRP) improves.</span>
+            </div>
+            
+            <div class="toggle-control" style="margin-top: 4px;">
+              <label class="switch-label">
+                <input type="checkbox" id="toggle-speech">
+                <span class="custom-checkbox"></span>
+                <span class="toggle-text">Voice Readout (TTS)</span>
+              </label>
+              <span class="toggle-desc">Announces signal strength and quality readings aloud periodically.</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Router Configuration Panel -->
         <div class="dashboard-card glass-panel" id="card-config">
           <h2 class="card-title"><i data-lucide="settings"></i> Router Settings</h2>
@@ -156,6 +181,7 @@
               <div class="metric-value-container">
                 <span class="metric-num" id="rsrp-val">-</span>
                 <span class="metric-unit">dBm</span>
+                <span class="metric-delta" id="rsrp-delta"></span>
               </div>
               <div class="progress-bar-bg">
                 <div class="progress-bar-fill fill-unknown" id="rsrp-bar"></div>
@@ -183,6 +209,7 @@
               <div class="metric-value-container">
                 <span class="metric-num" id="sinr-val">-</span>
                 <span class="metric-unit">dB</span>
+                <span class="metric-delta" id="sinr-delta"></span>
               </div>
               <div class="progress-bar-bg">
                 <div class="progress-bar-fill fill-unknown" id="sinr-bar"></div>
@@ -210,6 +237,7 @@
               <div class="metric-value-container">
                 <span class="metric-num" id="rsrq-val">-</span>
                 <span class="metric-unit">dB</span>
+                <span class="metric-delta" id="rsrq-delta"></span>
               </div>
               <div class="progress-bar-bg">
                 <div class="progress-bar-fill fill-unknown" id="rsrq-bar"></div>
@@ -237,6 +265,7 @@
               <div class="metric-value-container">
                 <span class="metric-num" id="rssi-val">-</span>
                 <span class="metric-unit">dBm</span>
+                <span class="metric-delta" id="rssi-delta"></span>
               </div>
               <div class="progress-bar-bg">
                 <div class="progress-bar-fill fill-unknown" id="rssi-bar"></div>
@@ -254,6 +283,20 @@
             </div>
           </div>
 
+        </div>
+
+        <!-- Placement Diagnostics & Advice Panel -->
+        <div class="dashboard-card glass-panel" id="card-advice" style="display: none;">
+          <h2 class="card-title"><i data-lucide="compass"></i> Placement Diagnostics & Advice</h2>
+          <div class="advice-content">
+            <div class="advice-icon-container" id="advice-severity-icon">
+              <i data-lucide="info"></i>
+            </div>
+            <div class="advice-text-container">
+              <h3 id="advice-title">Optimizing Placement</h3>
+              <p id="advice-message">Analyze signal parameters to see real-time antenna positioning tips here.</p>
+            </div>
+          </div>
         </div>
 
         <!-- Live Signal Quality Chart Card -->

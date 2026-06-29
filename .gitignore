@@ -15,3 +15,10 @@ yarn-error.log*
 .DS_Store
 *.log
 .agents/
+
+# Local databases and runtime configuration
+config.json
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
