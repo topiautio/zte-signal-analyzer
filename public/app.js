@@ -72,13 +72,26 @@ async function fetchConfig() {
 }
 
 // Fetch database historical logs from server to populate the interface
-async function fetchHistory() {
+async function fetchHistory(limit = 100) {
   try {
-    const res = await fetch('/api/history?limit=100');
+    const res = await fetch(`/api/history?limit=${limit}`);
     const data = await res.json();
     if (data.success && data.history) {
       // Clear existing UI data to prevent duplicates
       sessionLogs.length = 0;
+
+      // Reset best/worst stats in memory to recalculate over the history window
+      sessionStats.rsrp = { best: -Infinity, worst: Infinity };
+      sessionStats.sinr = { best: -Infinity, worst: Infinity };
+      sessionStats.rsrq = { best: -Infinity, worst: Infinity };
+      sessionStats.rssi = { best: -Infinity, worst: Infinity };
+
+      // Reset best/worst UI text indicators
+      const metrics = ['rsrp', 'sinr', 'rsrq', 'rssi'];
+      metrics.forEach(m => {
+        document.getElementById(`${m}-best`).textContent = '-';
+        document.getElementById(`${m}-worst`).textContent = '-';
+      });
 
       if (signalChart) {
         signalChart.data.labels = [];
@@ -152,10 +165,8 @@ function rebuildLogTableUI() {
     return;
   }
 
-  // Display max 100 rows for performance
-  const displayLogs = sessionLogs.slice(0, 100);
-  
-  displayLogs.forEach(log => {
+  // Display all loaded history records
+  sessionLogs.forEach(log => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="text-mono">${log.timestamp}</td>
@@ -392,6 +403,12 @@ function setupEventListeners() {
 
   // Clear Session Log & Stats
   document.getElementById('btn-clear-session').addEventListener('click', clearSession);
+
+  // Change History Limit Selector
+  document.getElementById('select-history-limit').addEventListener('change', (e) => {
+    const limit = parseInt(e.target.value) || 100;
+    fetchHistory(limit);
+  });
 
   // Toggle Audio Beep Finder
   document.getElementById('toggle-audio-beep').addEventListener('change', (e) => {

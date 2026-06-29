@@ -361,6 +361,12 @@
           <div class="card-header-with-actions">
             <h2 class="card-title"><i data-lucide="database"></i> Session Log History</h2>
             <div class="header-actions">
+              <select id="select-history-limit" style="appearance: auto; padding: 6px 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-sm); color: var(--text-main); font-family: inherit; font-size: 0.8rem; cursor: pointer; outline: none;">
+                <option value="100" selected>Last 100 Logs</option>
+                <option value="250">Last 250 Logs</option>
+                <option value="500">Last 500 Logs</option>
+                <option value="1000">Last 1000 Logs</option>
+              </select>
               <button id="btn-export-csv" class="btn btn-sm btn-secondary">
                 <i data-lucide="download"></i> Export CSV
               </button>
